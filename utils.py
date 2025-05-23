@@ -1,4 +1,7 @@
 from pypdf import PdfReader
+import re
+from collections import Counter
+import nltk
 
 def extract_pdf(file_path):
     """
@@ -16,38 +19,59 @@ def extract_pdf(file_path):
         raise ValueError("No text found in the PDF file.")
     return text
 
-def create_chunks(text, max_length=7000, overlap_pct=0.1):
+
+def calculate_density(text):
     """
-    Splits given text into chunks of max length or less
-    For use with embedders
+    Calculates the density of the given text
+    Density is defuned as the ratio of unique words to total words
     
-    Args: 
-        text (str): the text to be split
-        max_length (int): the maximum length allowed by the embedder - defaults to 7000 for OpenAI
-        overlap_pct (float): percentage of overlap between chunks - defaults to 10%
-    Returns:
-        chunks (list): a list containing all of the contents of the given text, in sizes approved by the embedder
+    Args:
+        text (str): text to analyze
+    Returns: 
+        (int): the density of the text
     Notes:
-        The maximum length is set to 7000 words, but for more precise results this should be MUCH less, closer to 200-600
-        """
-    words = text.split()
+        The goal is to be able to quantify how 'meaningful' a chunk of text is
+        Adapted from https://github.com/xbeat/Machine-Learning/blob/main/Optimizing%20RAG%20with%20Document%20Chunking%20Techniques%20Using%20Python.md
+    """
+    words = re.findall(r'\w+', text.lower())
+    word_freq = Counter(words)
+    unique_words = len(word_freq)
+    total_words = len(words)
+    return unique_words / total_words
+
+def dynamic_density_chunking(text, min_chunk_size=0, max_chunk_size=7000):
+    """
+    Splits the given text into chunks based on density so it can be used for RAG
+
+    Args:
+        text (str): text to analyze
+        min_chunk_size (int): the minimum size (in words) of a chunk
+        max_chunk_size (int): the maximum size (in words) of a chunk
+    Returns:
+        chunks (list): a list of the entire text, split into chunks  
+    Note:
+        Adapted from https://github.com/xbeat/Machine-Learning/blob/main/Optimizing%20RAG%20with%20Document%20Chunking%20Techniques%20Using%20Python.md
+    """
+    sentences = nltk.sent_tokenize(text)
     chunks = []
-    curr_chunk = []
-    curr_length = 0
-
-    for word in words:
-        word_length = len(word) + 1
-        if curr_length + word_length > max_length:
-            chunks.append(' '.join(curr_chunk))
-            curr_chunk = []
-            curr_length = 0
-        curr_chunk.append(word)
-        curr_length += word_length
-
-    if curr_chunk:
-        chunks.append(' '.join(curr_chunk))
-
+    current_chunk = ""
+    
+    for sentence in sentences:
+        density = calculate_density(current_chunk + sentence)
+        target_size = min_chunk_size + (1 - density) * (max_chunk_size - min_chunk_size)
+        
+        if len(current_chunk) + len(sentence) <= target_size:
+            current_chunk += sentence + " "
+        else:
+            chunks.append(current_chunk.strip())
+            current_chunk = sentence + " "
+    
+    if current_chunk:
+        chunks.append(current_chunk.strip())
+    
     return chunks
+
+
 
 
     
